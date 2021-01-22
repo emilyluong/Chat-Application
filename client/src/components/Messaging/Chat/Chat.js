@@ -5,17 +5,15 @@ import classes from './Chat.module.css';
 import FriendContext from '../../../friendContext/friendContext';
 import axios from 'axios'
 
-const Chat = (props) => {
+const Chat = ({socket}) => {
     const friendContext = useContext(FriendContext);
     const {friendEmail, friendName} = friendContext;
+    const [messages, setMessages] = useState({messages: null});
 
-    function timeout(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
-    }
-
-    const [messages, setMessages] = useState(null);
-    const [refreshes, setRefreshes] = useState(0);
-    const [currentFriendEmail, setCurrentFriendEmail] = useState(friendEmail);
+    useEffect(() => {
+        setMessages({messages: null});
+        getMessages();
+    }, [friendEmail]);
 
     
     const getMessages = async () => {
@@ -26,28 +24,41 @@ const Chat = (props) => {
         }
         try{
             const request = await axios.post('/api/messages/all', {friend: friendEmail}, config);
-            setMessages(request.data.messages);
-            setTimeout(() => {
-                if (refreshes > 100) setRefreshes(0);
-                else setRefreshes(refreshes +1);
-            }, 10000);
+            setMessages({messages: request.data.messages});
+            setRoom(); 
         } catch(error) {
             console.log(error.message);
         }
     }
 
+    const setRoom = async () => {
+        const request = await axios.get('api/users');
+        const myEmail = request.data.email;
+        socket.emit('join', {
+            friendEmail,
+            email: myEmail
+        });
+    }
+
+    if(!messages.messages && friendEmail) {
+        getMessages();
+    }
+
     useEffect(() => {
-        getMessages();
-    }, [refreshes]);
-
-    if(!messages && friendEmail) {
-        getMessages();
-    }
-
-    if(currentFriendEmail !== friendEmail) {
-        setCurrentFriendEmail(friendEmail);
-        setMessages(null);
-    }
+        try {
+            socket.removeListener('message');
+        } catch (error) {
+            
+        }
+        socket.on('message', (message) => {
+            if (messages.messages){
+                setMessages({messages: [...messages.messages, {
+                    from: message.email,
+                    body: message.message
+                }]});
+            }
+        });
+    }, [messages.messages]);
 
     if (!friendEmail) return (
      <h2 className={classes.ChatMessage}>Select a Friend to Message!</h2>
@@ -55,8 +66,8 @@ const Chat = (props) => {
     
     return(
         <div className={classes.Chat}>
-            <SendBar friendEmail={friendEmail} setMessages={setMessages}/>
-            <Messages messages={messages} friendEmail={friendEmail} />
+            <SendBar friendEmail={friendEmail} messages={messages} socket={socket}/>
+            <Messages messages={messages.messages} friendEmail={friendEmail} />
             <h3>{friendName}</h3>
         </div>
     );
